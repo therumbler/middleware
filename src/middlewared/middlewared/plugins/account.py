@@ -758,7 +758,9 @@ class UserService(CRUDService):
         if not data['username'] and data['uid'] is None:
             verrors.add('get_user_obj.username', 'Either "username" or "uid" must be specified')
         verrors.check()
-        return await self.middleware.call('dscache.get_uncached_user', data['username'], data['uid'], data['get_groups'])
+        principal = data['username'] if data['username'] else data['uid']
+        nss_job = await self.middleware.call('account.nss_lookup', {'USER', [principal], 30}) 
+        return await nss_job.wait()
 
     @item_method
     @accepts(
