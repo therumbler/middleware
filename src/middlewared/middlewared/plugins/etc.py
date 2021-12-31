@@ -7,10 +7,8 @@ from middlewared.utils.io import write_if_changed
 import asyncio
 from collections import defaultdict
 from pathlib import Path
-import grp
 import imp
 import os
-import pwd
 
 
 UPS_GROUP = 'nut' if osc.IS_LINUX else 'uucp'
@@ -18,6 +16,7 @@ PAM_PATH = Path(f'{Path(__file__).parent.parent}/etc_files/pam.d')
 LINUX_PAM_FILES = set(PAM_PATH.glob('common*'))
 FREEBSD_PAM_FILES = set(PAM_PATH.iterdir()) - LINUX_PAM_FILES
 PAM_FILES = LINUX_PAM_FILES if osc.IS_LINUX else FREEBSD_PAM_FILES
+RESOLVED_NSS = {}
 
 
 class FileShouldNotExist(Exception):
@@ -403,17 +402,17 @@ class EtcService(Service):
                 st = os.stat(outfile)
                 if 'owner' in entry and entry['owner']:
                     try:
-                        pw = await self.middleware.run_in_thread(pwd.getpwnam, entry['owner'])
-                        if st.st_uid != pw.pw_uid:
-                            os.chown(outfile, pw.pw_uid, -1)
+                        pw = RESOLVED_NSS['users'][entry['owner']]
+                        if st.st_uid != pw['pw_uid']:
+                            os.chown(outfile, pw['pw_uid'], -1)
                             changes = True
                     except Exception:
                         pass
                 if 'group' in entry and entry['group']:
                     try:
-                        gr = await self.middleware.run_in_thread(grp.getgrnam, entry['group'])
-                        if st.st_gid != gr.gr_gid:
-                            os.chown(outfile, -1, gr.gr_gid)
+                        gr = RESOLVED_NSS['groups'][entry['group']]
+                        if st.st_gid != gr['gr_gid']:
+                            os.chown(outfile, -1, gr['gr_gid'])
                             changes = True
                     except Exception:
                         pass
@@ -428,9 +427,43 @@ class EtcService(Service):
                 if not changes:
                     self.logger.debug(f'No new changes for {outfile}')
 
+    async def resolve_etc_groups(self):
+        grouplist = []
+        userlist = []
+        for entry in self.GROUPS.values():
+            for i in entry:
+                if 'owner' in i:
+                    userlist.append(i['owner'])
+                if 'group' in i:
+                    grouplist.append(i['group'])
+
+        pwd_job = await self.middleware.call(
+            'idmap.nss_lookup',
+            {'record_type': 'USER', 'principals': userlist},
+            30,
+        )
+
+        grp_job = await self.middleware.call(
+            'idmap.nss_lookup',
+            {'record_type': 'GROUP', 'principals': grouplist},
+            30,
+        )
+
+        users = await pwd_job.wait()
+        groups = await grp_job.wait()
+
+        return {"users": users, "groups": groups}
+
+    async def dump_resolved(self):
+        return RESOLVED_NSS
+
     async def generate_checkpoint(self, checkpoint):
+        global RESOLVED_NSS
         if checkpoint not in await self.get_checkpoints():
             raise CallError(f'"{checkpoint}" not recognised')
+
+        if not RESOLVED_NSS:
+            RESOLVED_NSS = await self.resolve_etc_groups()
 
         for name in self.GROUPS.keys():
             try:

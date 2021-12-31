@@ -85,10 +85,11 @@ class WebDAVSharingService(SharingService):
             {'prefix': self._config.datastore_prefix}
         )
         if data['perm']:
+            webdav_user = await self.middleware.call('user.get_user_obj', {'username': 'webdav'})
             await self.middleware.call('filesystem.chown', {
                 'path': data['path'],
-                'uid': (await self.middleware.call('dscache.get_uncached_user', 'webdav'))['pw_uid'],
-                'gid': (await self.middleware.call('dscache.get_uncached_group', 'webdav'))['gr_gid'],
+                'uid': webdav_user['pw_uid'],
+                'gid': webdav_user['pw_gid'],
                 'options': {'recursive': True}
             })
 
@@ -125,10 +126,11 @@ class WebDAVSharingService(SharingService):
             await self._service_change('webdav', 'reload')
 
         if not old['perm'] and new['perm']:
+            webdav_user = await self.middleware.call('user.get_user_obj', {'username': 'webdav'})
             await self.middleware.call('filesystem.chown', {
                 'path': new['path'],
-                'uid': (await self.middleware.call('dscache.get_uncached_user', 'webdav'))['pw_uid'],
-                'gid': (await self.middleware.call('dscache.get_uncached_group', 'webdav'))['gr_gid'],
+                'uid': webdav_user['pw_uid'],
+                'gid': webdav_user['pw_gid'],
                 'options': {'recursive': True}
             })
 

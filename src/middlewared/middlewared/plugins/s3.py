@@ -145,14 +145,16 @@ class S3Service(SystemServiceService):
 
         await self._update_service(old, new)
 
-        if new['disks'] and (await self.middleware.call('filesystem.stat', new['disks']))['user'] != 'minio':
+        muser = await self.middleware.call('user.get_user_obj', {'username': 'minio'})
+
+        if new['disks'] and (await self.middleware.call('filesystem.stat', new['disks']))['uid'] != muser['pw_uid']:
             await self.middleware.call(
                 'filesystem.setperm',
                 {
                     'path': new['disks'],
                     'mode': str(775),
-                    'uid': (await self.middleware.call('dscache.get_uncached_user', 'minio'))['pw_uid'],
-                    'gid': (await self.middleware.call('dscache.get_uncached_group', 'minio'))['gr_gid'],
+                    'uid': muser['pw_uid'],
+                    'gid': muser['pw_gid'],
                     'options': {'recursive': True, 'traverse': False}
                 }
             )

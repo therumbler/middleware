@@ -1,6 +1,4 @@
-import grp
 import os
-import pwd
 import shutil
 import subprocess
 import tdb
@@ -78,26 +76,39 @@ class ActiveDirectoryService(Service):
                 raise CallError(f'Failed to retrieve {entry_type} from active directory: '
                                 f'{wb.stderr.decode().strip()}')
             entries = wb.stdout.decode().splitlines()
+            nss_look_job = self.middleware.call_sync(
+                'idmap.nss_lookup',
+                {'record_type': entry_type, 'principals': entries},
+                0,
+            )
+            nss_entries = nss_look_job.wait_sync(raise_error=True)
 
         else:
             entries = self.get_gencache_names(domain_info)
+            nss_entries = {}
+            for i in entries:
+                try:
+                    res = self.middleware.call_sync(
+                       f'{entry_type.lower()}.get_{entry_type.lower()}_obj',
+                       {f'{entry_type.lower()}name': i}
+                    )
+                except CallError:
+                    continue
+
+                nss_entries.update(res)
 
         for i in entries:
             entry = {"id": -1, "sid": None, "nss": None}
+            try:
+                entry["nss"] = nss_entries[i]
+            except KeyError:
+                continue
             if entry_type == 'USER':
-                try:
-                    entry["nss"] = pwd.getpwnam(i)
-                except KeyError:
-                    continue
-                entry["id"] = entry["nss"].pw_uid
+                entry["id"] = entry["nss"]['pw_uid']
                 tdb_key = f'IDMAP/UID2SID/{entry["id"]}'
 
             else:
-                try:
-                    entry["nss"] = grp.getgrnam(i)
-                except KeyError:
-                    continue
-                entry["id"] = entry["nss"].gr_gid
+                entry["id"] = entry["nss"]['gr_gid']
                 tdb_key = f'IDMAP/GID2SID/{entry["id"]}'
 
             """
@@ -131,14 +142,14 @@ class ActiveDirectoryService(Service):
 
             entry = {
                 'id': 100000 + u['domain_info']['range_low'] + rid,
-                'uid': user_data.pw_uid,
-                'username': user_data.pw_name,
+                'uid': user_data['pw_uid'],
+                'username': user_data['pw_name'],
                 'unixhash': None,
                 'smbhash': None,
                 'group': {},
                 'home': '',
                 'shell': '',
-                'full_name': user_data.pw_gecos,
+                'full_name': user_data['pw_gecos'],
                 'builtin': False,
                 'email': '',
                 'password_disabled': False,
@@ -164,9 +175,9 @@ class ActiveDirectoryService(Service):
 
             entry = {
                 'id': 100000 + g['domain_info']['range_low'] + rid,
-                'gid': group_data.gr_gid,
-                'name': group_data.gr_name,
-                'group': group_data.gr_name,
+                'gid': group_data['gr_gid'],
+                'name': group_data['gr_name'],
+                'group': group_data['gr_name'],
                 'builtin': False,
                 'sudo': False,
                 'sudo_nopasswd': False,

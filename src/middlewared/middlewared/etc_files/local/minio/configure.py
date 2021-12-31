@@ -1,6 +1,4 @@
-import grp
 import os
-import pwd
 import shutil
 
 
@@ -24,8 +22,17 @@ def render_certificates(s3, middleware):
         minio_certificate = os.path.join(minio_certpath, "public.crt")
         minio_privatekey = os.path.join(minio_certpath, "private.key")
 
-        minio_uid = pwd.getpwnam('minio').pw_uid
-        minio_gid = grp.getgrnam('minio').gr_gid
+        pwd = middleware.call_sync(
+            'user.get_user_obj',
+            {'username': 'minio'}
+        )
+        minio_uid = pwd['pw_uid']
+
+        grp = middleware.call_sync(
+            'group.get_group_obj',
+            {'gid': stat['gid']}
+        )
+        minio_gid = grp['gr_gid']
 
         os.makedirs(minio_CApath, mode=0o555, exist_ok=True)
         os.chown(minio_CApath, minio_uid, minio_gid)

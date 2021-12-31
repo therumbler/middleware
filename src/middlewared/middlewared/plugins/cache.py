@@ -6,8 +6,6 @@ from middlewared.service_exception import CallError, MatchNotFound
 from collections import namedtuple
 import os
 import time
-import pwd
-import grp
 import json
 
 
@@ -310,19 +308,17 @@ class DSCache(Service):
             """
             if cache lacks entry, create one from passwd / grp info,
             insert into cache and return synthesized value.
-            get_uncached_* will raise KeyError if NSS lookup fails.
             """
+            if data['idtype'] == 'USER':
+                payload = {"username": who_str} if prefix == "NAME" else {"uid": who_id}
+                methods = ("user.get_user_obj", "idmap.synthetic_user")
+            else:
+                payload = {"groupname": who_str} if prefix == "NAME" else {"gid": who_id}
+                methods = ("group.get_group_obj", "idmap.synthetic_group")
+
             try:
-                if data['idtype'] == 'USER':
-                    pwdobj = await self.middleware.call('dscache.get_uncached_user',
-                                                        who_str, who_id)
-                    entry = await self.middleware.call('idmap.synthetic_user',
-                                                       ds.lower(), pwdobj)
-                else:
-                    grpobj = await self.middleware.call('dscache.get_uncached_group',
-                                                        who_str, who_id)
-                    entry = await self.middleware.call('idmap.synthetic_group',
-                                                       ds.lower(), grpobj)
+                nss_entry = await self.middleware.call(methods[0], payload)
+                entry = await self.middleware.call(methods[1], ds.lower(), nss_entry)
                 await self.insert(ds, data['idtype'], entry)
             except KeyError:
                 entry = None
@@ -343,51 +339,23 @@ class DSCache(Service):
         })
         return [x['val'] for x in entries]
 
-    def get_uncached_user(self, username=None, uid=None, getgroups=False):
+    async def get_uncached_user(self, username=None, uid=None, getgroups=False):
         """
-        Returns dictionary containing pwd_struct data for
-        the specified user or uid. Will raise an exception
-        if the user does not exist. This method is appropriate
-        for user validation.
+        Legacy wrapper for pwd
         """
-        if username:
-            u = pwd.getpwnam(username)
-        elif uid is not None:
-            u = pwd.getpwuid(uid)
-        else:
-            return {}
+        return self.middleware.call_sync(
+            'user.get_user_obj',
+            {'username': username, 'uid': uid, 'get_groups': getgroups}
+        )
 
-        user_obj = {
-            'pw_name': u.pw_name,
-            'pw_uid': u.pw_uid,
-            'pw_gid': u.pw_gid,
-            'pw_gecos': u.pw_gecos,
-            'pw_dir': u.pw_dir,
-            'pw_shell': u.pw_shell,
-        }
-        if getgroups:
-            user_obj['grouplist'] = os.getgrouplist(u.pw_name, u.pw_gid)
-
-        return user_obj
-
-    def get_uncached_group(self, groupname=None, gid=None):
+    async def get_uncached_group(self, groupname=None, gid=None):
         """
-        Returns dictionary containing grp_struct data for
-        the specified group or gid. Will raise an exception
-        if the group does not exist. This method is appropriate
-        for group validation.
+        Legacy wrapper for grp
         """
-        if groupname:
-            g = grp.getgrnam(groupname)
-        elif gid is not None:
-            g = grp.getgrgid(gid)
-        else:
-            return {}
-        return {
-            'gr_name': g.gr_name,
-            'gr_gid': g.gr_gid,
-            'gr_mem': g.gr_mem
-        }
+        return self.middleware.call_sync(
+            'group.get_group_obj',
+            {'groupname': groupname, 'gid': gid}
+        )
 
     @accepts(
         Str('objtype', enum=['USERS', 'GROUPS'], default='USERS'),

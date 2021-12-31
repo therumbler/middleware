@@ -359,7 +359,7 @@ class RsyncTaskService(TaskPathService):
 
         user = None
         with contextlib.suppress(KeyError):
-            user = await self.middleware.call('dscache.get_uncached_user', username)
+            user = await self.middleware.call('user.get_user_obj', {'username': username})
 
         if not user:
             verrors.add(f'{schema}.user', f'Provided user "{username}" does not exist')

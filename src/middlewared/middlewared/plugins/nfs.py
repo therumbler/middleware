@@ -455,14 +455,14 @@ class SharingNFSService(SharingService):
             else:
                 user = group = None
                 with contextlib.suppress(KeyError):
-                    user = await self.middleware.call('dscache.get_uncached_user', data[f'{k}_user'])
+                    user = await self.middleware.call('user.get_user_obj', {'username': data[f'{k}_user']})
 
                 if not user:
                     verrors.add(f"{schema_name}.{k}_user", "User not found")
 
                 if data[f'{k}_group']:
                     with contextlib.suppress(KeyError):
-                        group = await self.middleware.call('dscache.get_uncached_group', data[f'{k}_group'])
+                        group = await self.middleware.call('group.get_group_obj', {'groupname': data[f'{k}_group']})
 
                     if not group:
                         verrors.add(f"{schema_name}.{k}_group", "Group not found")

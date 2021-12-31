@@ -1,10 +1,8 @@
 import binascii
 import errno
 import functools
-import grp
 import os
 import pathlib
-import pwd
 import shutil
 import time
 
@@ -232,12 +230,20 @@ class FilesystemService(Service):
         }
 
         try:
-            stat['user'] = pwd.getpwuid(stat['uid']).pw_name
+            pwd = self.middleware.call_sync(
+                'user.get_user_obj',
+                {'uid': stat['uid']}
+            )
+            stat['user'] = pwd['pw_name']
         except KeyError:
             stat['user'] = None
 
         try:
-            stat['group'] = grp.getgrgid(stat['gid']).gr_name
+            grp = self.middleware.call_sync(
+                'group.get_group_obj',
+                {'gid': stat['gid']}
+            )
+            stat['group'] = grp['gr_name']
         except KeyError:
             stat['group'] = None
 

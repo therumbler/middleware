@@ -1,11 +1,9 @@
 import enum
 import errno
 import fcntl
-import grp
 import ipaddress
 import ldap as pyldap
 import os
-import pwd
 import socket
 import struct
 import sys
@@ -1327,27 +1325,37 @@ class LDAPService(TDBWrapConfigService):
             self.logger.debug('LDAP cache is disabled. Bypassing cache fill.')
             return
 
-        pwd_list = pwd.getpwall()
-        grp_list = grp.getgrall()
+        pwd_job = self.middleware.call_sync(
+            'idmap.nss_lookup',
+            {'record_type': 'USERLIST', 'get_groups': False},
+            0
+        )
+        pwd_list = pwd_job.wait_sync(raise_error=True)
+        grp_job = self.middleware.call_sync(
+            'idmap.nss_lookup',
+            {'record_type': 'GROUPLIST'},
+            0
+        )
+        grp_list = grp_job.wait_sync(raise_error=True)
 
         local_uid_list = list(u['uid'] for u in self.middleware.call_sync('user.query'))
         local_gid_list = list(g['gid'] for g in self.middleware.call_sync('group.query'))
 
         for u in pwd_list:
-            is_local_user = True if u.pw_uid in local_uid_list else False
+            is_local_user = True if u['pw_uid'] in local_uid_list else False
             if is_local_user:
                 continue
 
             entry = {
                 'id': user_next_index,
-                'uid': u.pw_uid,
-                'username': u.pw_name,
+                'uid': u['pw_uid'],
+                'username': u['pw_name'],
                 'unixhash': None,
                 'smbhash': None,
                 'group': {},
                 'home': '',
                 'shell': '',
-                'full_name': u.pw_gecos,
+                'full_name': u['pw_gecos'],
                 'builtin': False,
                 'email': '',
                 'password_disabled': False,
@@ -1368,15 +1376,15 @@ class LDAPService(TDBWrapConfigService):
             user_next_index += 1
 
         for g in grp_list:
-            is_local_user = True if g.gr_gid in local_gid_list else False
+            is_local_user = True if g['gr_gid'] in local_gid_list else False
             if is_local_user:
                 continue
 
             entry = {
                 'id': group_next_index,
-                'gid': g.gr_gid,
-                'name': g.gr_name,
-                'group': g.gr_name,
+                'gid': g['gr_gid'],
+                'name': g['gr_name'],
+                'group': g['gr_name'],
                 'builtin': False,
                 'sudo': False,
                 'sudo_nopasswd': False,
