@@ -39,11 +39,6 @@ MAKE_JOBS_UNSAFE=yes
 
 .include <bsd.port.pre.mk>
 
-do-build:
-	${MAKE} -C ${WRKSRC}/winacl   obj
-	${MAKE} -C ${WRKSRC}/winacl  all
-
-
 do-install:
 	mkdir -p ${STAGEDIR}${PREFIX}/usr/local/bin
 	mkdir -p ${STAGEDIR}${PREFIX}/usr/sbin
@@ -52,7 +47,6 @@ do-install:
 .if defined(DEBUG_FLAGS)
 	mkdir -p ${STAGEDIR}${DEBUGDIR}${PREFIX}/boot/modules
 .endif
-	${MAKE} -C ${WRKSRC}/winacl DESTDIR=${STAGEDIR} BINDIR=${PREFIX}/usr/local/bin install
 	#
 	# Adding autotune
 	#
