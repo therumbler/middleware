@@ -291,13 +291,6 @@ class ActiveDirectoryService(ConfigService):
                 'netbiosname': ngc['hostname_virtual'],
                 'netbiosalias': smb['netbiosalias']
             })
-        elif smb_ha_mode == 'LEGACY':
-            ngc = await self.middleware.call('network.configuration.config')
-            ad.update({
-                'netbiosname': ngc['hostname'],
-                'netbiosname_b': ngc['hostname_b'],
-                'netbiosalias': smb['netbiosalias']
-            })
 
         if ad.get('nss_info'):
             ad['nss_info'] = ad['nss_info'].upper()
@@ -351,15 +344,6 @@ class ActiveDirectoryService(ConfigService):
             await self.middleware.call('smb.update', {'netbiosalias': new['netbiosalias']})
             await self.middleware.call('network.configuration.update', {'hostname_virtual': new['netbiosname']})
 
-        elif smb_ha_mode == 'LEGACY' and must_update:
-            await self.middleware.call('smb.update', {'netbiosalias': new['netbiosalias']})
-            await self.middleware.call(
-                'network.configuration.update',
-                {
-                    'hostname': new['netbiosname'],
-                    'hostname_b': new['netbiosname_b']
-                }
-            )
         return
 
     @private
@@ -622,6 +606,10 @@ class ActiveDirectoryService(ConfigService):
             if await self.middleware.call('failover.status') != 'MASTER':
                 return
 
+            system_dataset = await self.middleware.call('systemdataset.config')
+            if system_dataset['pool'] == await self.middleware.call('boot.pool_name'):
+                raise CallError("System dataset may not reside on boot pool of TrueNAS-HA product")
+
         state = await self.get_state()
         if state in [DSStatus['JOINING'], DSStatus['LEAVING']]:
             raise CallError(f'Active Directory Service has status of [{state}]. Wait until operation completes.', errno.EBUSY)
@@ -690,31 +678,30 @@ class ActiveDirectoryService(ConfigService):
             self.logger.debug(f"Test join to {ad['domainname']} failed. Performing domain join.")
             await self._net_ads_join()
             await self._register_virthostname(ad, smb, smb_ha_mode)
-            if smb_ha_mode != 'LEGACY':
-                """
-                Manipulating the SPN entries must be done with elevated privileges. Add NFS service
-                principals while we have these on-hand. Once added, force a refresh of the system
-                keytab so that the NFS principal will be available for gssd.
-                """
-                job.set_progress(60, 'Adding NFS Principal entries.')
+            """
+            Manipulating the SPN entries must be done with elevated privileges. Add NFS service
+            principals while we have these on-hand. Once added, force a refresh of the system
+            keytab so that the NFS principal will be available for gssd.
+            """
+            job.set_progress(60, 'Adding NFS Principal entries.')
 
-                try:
-                    await self.add_nfs_spn(ad)
-                except Exception:
-                    self.logger.warning("Failed to add NFS spn to active directory "
-                                        "computer object.", exc_info=True)
+            try:
+                await self.add_nfs_spn(ad)
+            except Exception:
+                self.logger.warning("Failed to add NFS spn to active directory "
+                                    "computer object.", exc_info=True)
 
-                job.set_progress(70, 'Storing computer account keytab.')
-                kt_id = await self.middleware.call('kerberos.keytab.store_samba_keytab')
-                if kt_id:
-                    self.logger.debug('Successfully generated keytab for computer account. Clearing bind credentials')
-                    await self.middleware.call(
-                        'datastore.update',
-                        'directoryservice.activedirectory',
-                        ad['id'],
-                        {'ad_bindpw': '', 'ad_kerberos_principal': f'{ad["netbiosname"].upper()}$@{ad["domainname"]}'}
-                    )
-                    ad = await self.config()
+            job.set_progress(70, 'Storing computer account keytab.')
+            kt_id = await self.middleware.call('kerberos.keytab.store_samba_keytab')
+            if kt_id:
+                self.logger.debug('Successfully generated keytab for computer account. Clearing bind credentials')
+                await self.middleware.call(
+                    'datastore.update',
+                    'directoryservice.activedirectory',
+                    ad['id'],
+                    {'ad_bindpw': '', 'ad_kerberos_principal': f'{ad["netbiosname"].upper()}$@{ad["domainname"]}'}
+                )
+                ad = await self.config()
 
             ret = neterr.JOINED
 
@@ -733,13 +720,6 @@ class ActiveDirectoryService(ConfigService):
             await self.middleware.call('activedirectory.get_cache')
             if ad['verbose_logging']:
                 self.logger.debug('Successfully started AD service for [%s].', ad['domainname'])
-
-            if smb_ha_mode == "LEGACY" and (await self.middleware.call('failover.status')) == 'MASTER':
-                job.set_progress(95, 'starting active directory on standby controller')
-                try:
-                    await self.middleware.call('failover.call_remote', 'activedirectory.start')
-                except Exception:
-                    self.logger.warning('Failed to start active directory service on standby controller', exc_info=True)
         else:
             await self.set_state(DSStatus['FAULTED'])
             self.logger.warning('Server is joined to domain [%s], but is in a faulted state.', ad['domainname'])
@@ -771,12 +751,6 @@ class ActiveDirectoryService(ConfigService):
         flush = await run([SMBCmd.NET.value, "cache", "flush"], check=False)
         if flush.returncode != 0:
             self.logger.warning("Failed to flush samba's general cache after stopping Active Directory service.")
-
-        if (await self.middleware.call('smb.get_smb_ha_mode')) == "LEGACY" and (await self.middleware.call('failover.status')) == 'MASTER':
-            try:
-                await self.middleware.call('failover.call_remote', 'activedirectory.stop')
-            except Exception:
-                self.logger.warning('Failed to stop active directory service on standby controller', exc_info=True)
 
     @private
     def validate_credentials(self, ad=None):
@@ -1326,13 +1300,12 @@ class ActiveDirectoryService(ConfigService):
         if netads.returncode != 0:
             self.logger.warning("Failed to leave domain: %s", netads.stderr.decode())
 
-        if smb_ha_mode != 'LEGACY':
-            krb_princ = await self.middleware.call(
-                'kerberos.keytab.query',
-                [('name', '=', 'AD_MACHINE_ACCOUNT')]
-            )
-            if krb_princ:
-                await self.middleware.call('kerberos.keytab.delete', krb_princ[0]['id'])
+        krb_princ = await self.middleware.call(
+            'kerberos.keytab.query',
+            [('name', '=', 'AD_MACHINE_ACCOUNT')]
+        )
+        if krb_princ:
+            await self.middleware.call('kerberos.keytab.delete', krb_princ[0]['id'])
 
         await self.middleware.call('datastore.delete', 'directoryservice.kerberosrealm', ad['kerberos_realm'])
 
@@ -1346,12 +1319,6 @@ class ActiveDirectoryService(ConfigService):
                 self.logger.debug("Failed to remove stale secrets file.", exc_info=True)
 
         await self.middleware.call('activedirectory.update', {'enable': False, 'site': None})
-        if smb_ha_mode == 'LEGACY' and (await self.middleware.call('failover.status')) == 'MASTER':
-            try:
-                await self.middleware.call('failover.call_remote', 'activedirectory.leave', [data])
-            except Exception:
-                self.logger.warning("Failed to leave AD domain on passive storage controller.", exc_info=True)
-
         flush = await run([SMBCmd.NET.value, "cache", "flush"], check=False)
         if flush.returncode != 0:
             self.logger.warning("Failed to flush samba's general cache after leaving Active Directory.")

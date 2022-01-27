@@ -1134,9 +1134,6 @@ class KerberosKeytabService(CRUDService):
         if ad_state == 'DISABLED' or not os.path.exists(keytab['SYSTEM'].value):
             return
 
-        if (await self.middleware.call("smb.get_smb_ha_mode")) == "LEGACY":
-            return
-
         if await self.middleware.call('cache.has_key', 'KEYTAB_MTIME'):
             old_mtime = await self.middleware.call('cache.get', 'KEYTAB_MTIME')
 
