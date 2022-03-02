@@ -1,4 +1,5 @@
-% for user in middleware.call_sync('user.query', [], {'order_by': ['-builtin', 'uid']}):
+<% from middlewared.utils import filter_list %>\
+% for user in filter_list(render_ctx['user.query'], [], {'order_by': ['-builtin', 'uid']}):
 <%
 if IS_FREEBSD:
     if user['password_disabled']:

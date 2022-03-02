@@ -1,6 +1,8 @@
 <%
-    users = middleware.call_sync('user.query', [["sudo", "=", True]])
-    groups = middleware.call_sync('group.query', [["sudo", "=", True]])
+    from middlewared.utils import filter_list
+
+    users = filter_list(render_ctx['user.query'], [["sudo", "=", True]])
+    groups = filter_list(render_ctx['group.query'], [["sudo", "=", True]])
     ups_user = "nut" if IS_LINUX else "uucp"
 
     def sudo_commands(commands):

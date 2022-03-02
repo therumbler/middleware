@@ -1,8 +1,9 @@
 <%
+    from middlewared.utils import filter_list
     import os
     import re
 
-    users = middleware.call_sync('user.query', [['email', '!=', '']])
+    users = filter_list(render_ctx['user.query'], [['email', 'nin', ['', None]]])
 
     with open(os.path.join('/conf/base/etc', '' if IS_LINUX else 'mail', 'aliases'), 'r') as f:
         base_data = f.read()
