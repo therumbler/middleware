@@ -15,6 +15,7 @@ RE_DISK_SERIAL = re.compile(r'Unit serial number:\s*(.*)')
 RE_NVME_PRIVATE_NAMESPACE = re.compile(r'nvme[0-9]+c')
 RE_SERIAL = re.compile(r'state.*=\s*(\w*).*io (.*)-(\w*)\n.*', re.S | re.A)
 RE_UART_TYPE = re.compile(r'is a\s*(\w+)')
+IGNORE = ('sr', 'md', 'dm-', 'loop', 'zd')
 
 
 class DeviceService(Service):
@@ -46,26 +47,34 @@ class DeviceService(Service):
         return serial_port_choices()
 
     @private
+    def valid_disk(self, dev):
+        if dev.sys_name.startswith(IGNORE) or RE_NVME_PRIVATE_NAMESPACE.match(dev.sys_name):
+            return False
+
+        child = next(dev.children, None)
+        if child is not None:
+            # don't care about partitioned devices
+            return False
+
+        if dev.attributes.get('device/type') != b'0':
+            # nvme drives won't have this
+            return False
+
+        return True
+
+    @private
     def get_disks(self):
         disks = {}
         disks_data = self.retrieve_disks_data()
 
         for dev in pyudev.Context().list_devices(subsystem='block', DEVTYPE='disk'):
-            if dev.sys_name.startswith(('sr', 'md', 'dm-', 'loop', 'zd')):
+            if not self.valid_disk(dev):
                 continue
-            if RE_NVME_PRIVATE_NAMESPACE.match(dev.sys_name):
-                continue
-            device_type = os.path.join('/sys/block', dev.sys_name, 'device/type')
-            if os.path.exists(device_type):
-                with open(device_type, 'r') as f:
-                    if f.read().strip() != '0':
-                        continue
-            # nvme drives won't have this
 
             try:
                 disks[dev.sys_name] = self.get_disk_details(dev, self.DISK_DEFAULT.copy(), disks_data)
             except Exception:
-                self.logger.debug('Failed to retrieve disk details for %s : %s', dev.sys_name, exc_info=True)
+                self.logger.debug('Failed to retrieve disk details for %s', dev.sys_name, exc_info=True)
 
         return disks
 
@@ -158,26 +167,16 @@ class DeviceService(Service):
 
     @private
     def get_disk_details(self, block_device, disk, disks_data):
-
-        device_path = os.path.join('/dev', block_device.sys_name)
-        disk_sys_path = os.path.join('/sys/block', block_device.sys_name)
-        driver_name = os.path.realpath(os.path.join(disk_sys_path, 'device/driver')).split('/')[-1]
-
-        number = 0
-        if driver_name != 'driver':
-            number = sum(
-                (ord(letter) - ord('a') + 1) * 26 ** i
-                for i, letter in enumerate(reversed(block_device.sys_name[len(driver_name):]))
-            )
-        elif block_device.sys_name.startswith('nvme'):
-            number = int(block_device.sys_name.rsplit('n', 1)[-1])
+        name = block_device.sys_name
 
         disk.update({
-            'name': block_device.sys_name,
-            'number': number,
-            'subsystem': os.path.realpath(os.path.join(disk_sys_path, 'device/subsystem')).split('/')[-1],
+            'name': name,
+            'number': block_device.device_number,
+            'subsystem': block_device.attributes.get('subsystem').decode(),
+            'size': block_device.attributes.get('size').decode() or None,
         })
 
+        device_path = f'/dev/{name}'
         if device_path in disks_data:
             disk_data = disks_data[device_path]
 
