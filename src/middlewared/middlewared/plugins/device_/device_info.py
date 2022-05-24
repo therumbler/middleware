@@ -166,76 +166,45 @@ class DeviceService(Service):
         return str(rotation_rate)
 
     @private
-    def get_disk_details(self, block_device, disk, disks_data):
-        name = block_device.sys_name
+    def get_disk_details(self, dev, disk, disks_data):
+        name = dev.sys_name
+        number = dev.device_number
+        subsys = dev.attributes.get('subsystem').decode()
+        size = mediasize = dev.attributes.get('size').strip().decode()
+        ident = serial = dev.attributes.get('serial').strip().decode()
+        model = descr = dev.attributes.get('model').strip().decode()
+        lunid = dev.parent.attributes.get('wwid').removeprefix(b'eui.').removeprefix(b'naa.').strip().decode()
+        sectorsize = dev.attributes.get('queue/logical_block_size').decode()
 
         disk.update({
             'name': name,
-            'number': block_device.device_number,
-            'subsystem': block_device.attributes.get('subsystem').decode(),
-            'size': block_device.attributes.get('size').decode() or None,
+            'number': number,
+            'subsystem': subsys,
+            'size': size,
+            'mediasize': mediasize,
+            'ident': ident,
+            'serial': serial,
+            'model': model,
+            'descr': descr,
+            'lunid': lunid,
+            'sectorsize': sectorsize,
         })
 
-        device_path = f'/dev/{name}'
-        if device_path in disks_data:
-            disk_data = disks_data[device_path]
+        if disk['size'] and disk['sectorsize']:
+            disk['blocks'] = int(disk['size'] / disk['sectorsize'])
 
-            # get type of disk and rotational rate (if HDD)
-            disk['type'], disk['rotationrate'] = self._get_type_and_rotation_rate(disk_data, device_path)
+        if dev.attributes.get('queue/rotational').strip().decode() == 1:
+            disk['type'] = 'HDD'
+            disk['rotationrate'] = self._get_rotation_rate(f'/dev/{name}')
+        else:
+            disk['type'] = 'SSD'
+            disk['rotationrate'] = None
 
-            # get model and serial
-            disk['ident'] = disk['serial'] = (disk_data.get('serial') or '').strip()
-            disk['descr'] = disk['model'] = (disk_data.get('model') or '').strip()
+        # if disk_data['tran']:
+            # disk['bus'] = disk_data['tran'].upper()
 
-            # get all relevant size attributes of disk
-            disk['sectorsize'] = disk_data['log-sec']
-            disk['size'] = disk['mediasize'] = disk_data['size']
-            if disk['size'] and disk['sectorsize']:
-                disk['blocks'] = int(disk['size'] / disk['sectorsize'])
-
-            # get lunid
-            if disk_data['wwn']:
-                if disk_data['tran'] == 'nvme':
-                    disk['lunid'] = disk_data['wwn'].lstrip('eui.')
-                else:
-                    disk['lunid'] = disk_data['wwn'].lstrip('0x')
-
-            if disk_data['tran']:
-                disk['bus'] = disk_data['tran'].upper()
-
-        if not disk['size'] and os.path.exists(os.path.join(disk_sys_path, 'size')):
-            with open(os.path.join(disk_sys_path, 'size'), 'r') as f:
-                disk['blocks'] = int(f.read().strip())
+        if not disk['size'] and (disk['blocks'] and disk['sectorsize']):
             disk['size'] = disk['mediasize'] = disk['blocks'] * disk['sectorsize']
-
-        if not disk['serial'] and (block_device.get('ID_SERIAL_SHORT') or block_device.get('ID_SERIAL')):
-            disk['serial'] = block_device.get('ID_SERIAL_SHORT') or block_device.get('ID_SERIAL')
-
-        if not disk['serial']:
-            serial_cp = subprocess.Popen(
-                ['sg_vpd', '--quiet', '--page=0x80', device_path],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            cp_stdout, cp_stderr = serial_cp.communicate()
-            if not serial_cp.returncode:
-                reg = RE_DISK_SERIAL.search(cp_stdout.decode().strip())
-                if reg:
-                    disk['serial'] = disk['ident'] = reg.group(1)
-
-        if not disk['lunid']:
-            # We make a device ID query to get DEVICE ID VPD page of the drive if available and then use that identifier
-            # as the lunid - FreeBSD does the same, however it defaults to other schemes if this is unavailable
-            lun_id_cp = subprocess.Popen(
-                ['sg_vpd', '--quiet', '-i', device_path],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            )
-            cp_stdout, cp_stderr = lun_id_cp.communicate()
-            if not lun_id_cp.returncode and lun_id_cp.stdout:
-                lunid = cp_stdout.decode().strip()
-                if lunid:
-                    disk['lunid'] = lunid.split()[0]
-                if lunid and disk['lunid'].startswith('0x'):
-                    disk['lunid'] = disk['lunid'][2:]
 
         if disk['serial'] and disk['lunid']:
             disk['serial_lunid'] = f'{disk["serial"]}_{disk["lunid"]}'
