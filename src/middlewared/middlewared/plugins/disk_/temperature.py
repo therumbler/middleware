@@ -1,5 +1,6 @@
 import asyncio
 import re
+import pathlib
 
 import async_timeout
 
@@ -97,6 +98,34 @@ class DiskService(Service):
             return None
 
         return get_temperature(output)
+
+    @private
+    def read_temps(self):
+        disks = {
+            i['serial']: i['name'] for i in self.middleware.call_sync('datastore.query', 'storage.disk', [
+                ['serial', '!=', ''],
+                ['togglesmart', '=', True],
+                ['hddstandby', '=', 'ALWAYS ON'],
+            ], {'prefix': 'disk_'})
+        }
+        rv = {}
+        for i in pathlib.Path('/var/lib/smartmontools').iterdir():
+            # TODO: throw this into multiple threads since we're reading data from disk
+            # to make this really go brrrrr (even though it only takes ~0.2 seconds on 439 disk system)
+            if i.is_file() and i.suffix == '.csv':
+                if serial := next((k for k in disks if i.as_posix().find(k) != -1), None):
+                    with open(i.as_posix()) as f:
+                        for line in f:
+                            # iterate to the last line in the file without loading all of it
+                            # into memory since `smartd` could have written 1000's (or more)
+                            # of lines to the file
+                            pass
+
+                        if (info := line.split('\t')) and next((i.find('temperature') != -1 for i in info), None):
+                            temp = info[-1].split(';', 1)[-1].strip().replace(';', '')
+                            if temp.isdigit():
+                                rv[disks[serial]] = int(temp)
+        return rv
 
     @accepts(
         List('names', items=[Str('name')]),
