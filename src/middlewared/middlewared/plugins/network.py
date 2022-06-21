@@ -1459,24 +1459,21 @@ class InterfaceService(CRUDService):
         """
         await self.middleware.call_hook('interface.pre_sync')
 
-        interfaces = [i['int_interface'] for i in (await self.middleware.call('datastore.query', 'network.interfaces'))]
+        interfaces = [i['int_interface'] for i in await self.middleware.call('datastore.query', 'network.interfaces')]
         cloned_interfaces = []
-        parent_interfaces = []
+        parent_ifaces = []
         sync_interface_opts = defaultdict(dict)
 
         # First of all we need to create the virtual interfaces
         # LAGG comes first and then VLAN
-        laggs = await self.middleware.call('datastore.query', 'network.lagginterface')
-        for lagg in laggs:
+        for lagg in await self.middleware.call('datastore.query', 'network.lagginterface'):
             name = lagg['lagg_interface']['int_interface']
-            members = await self.middleware.call('datastore.query', 'network.lagginterfacemembers',
-                                                 [('lagg_interfacegroup_id', '=', lagg['id'])],
-                                                 {'order_by': ['lagg_physnic']})
+            filters = [('lagg_interfacegroup_id', '=', lagg['id'])]
+            options = {'order_by': ['lagg_physnic']}
+            members = await self.middleware.call('datastore.query', 'network.lagginterfacemembers', filters, options)
             cloned_interfaces.append(name)
             try:
-                await self.middleware.call(
-                    'interface.lag_setup', lagg, members, parent_interfaces, sync_interface_opts
-                )
+                await self.middleware.call('interface.lag_setup', lagg, members, parent_ifaces, sync_interface_opts)
             except Exception:
                 self.logger.error('Error setting up LAG %s', name, exc_info=True)
 
@@ -1484,7 +1481,7 @@ class InterfaceService(CRUDService):
         for vlan in vlans:
             cloned_interfaces.append(vlan['vlan_vint'])
             try:
-                await self.middleware.call('interface.vlan_setup', vlan, parent_interfaces)
+                await self.middleware.call('interface.vlan_setup', vlan, parent_ifaces)
             except Exception:
                 self.logger.error('Error setting up VLAN %s', vlan['vlan_vint'], exc_info=True)
 
@@ -1505,7 +1502,7 @@ class InterfaceService(CRUDService):
 
             cloned_interfaces.append(name)
             try:
-                await self.middleware.call('interface.bridge_setup', bridge, parent_interfaces)
+                await self.middleware.call('interface.bridge_setup', bridge, parent_ifaces)
             except Exception:
                 self.logger.error('Error setting up bridge %s', name, exc_info=True)
             # Finally sync bridge interface
@@ -1541,7 +1538,7 @@ class InterfaceService(CRUDService):
                 # 5) Rollback happens where the only nic is removed from database
                 # 6) If we don't unconfigure, autoconfigure is called which is supposed to start dhclient on the
                 #    interface. However this will result in the static ip still being set.
-                await self.middleware.call('interface.unconfigure', iface, cloned_interfaces, parent_interfaces)
+                await self.middleware.call('interface.unconfigure', iface, cloned_interfaces, parent_ifaces)
                 if not iface.cloned:
                     # We only autoconfigure physical interfaces because if this is a delete operation
                     # and the interface that was deleted is a "clone" (vlan/br/bond) interface, then
@@ -1557,7 +1554,7 @@ class InterfaceService(CRUDService):
                 if name in interfaces:
                     continue
 
-                await self.middleware.call('interface.unconfigure', iface, cloned_interfaces, parent_interfaces)
+                await self.middleware.call('interface.unconfigure', iface, cloned_interfaces, parent_ifaces)
 
         if wait_dhcp and dhclient_aws:
             await asyncio.wait(dhclient_aws, timeout=30)
