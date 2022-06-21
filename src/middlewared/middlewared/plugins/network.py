@@ -1460,7 +1460,7 @@ class InterfaceService(CRUDService):
         await self.middleware.call_hook('interface.pre_sync')
 
         interfaces = [i['int_interface'] for i in await self.middleware.call('datastore.query', 'network.interfaces')]
-        cloned_interfaces = []
+        cloned_ifaces = []
         parent_ifaces = []
         sync_interface_opts = defaultdict(dict)
 
@@ -1471,7 +1471,7 @@ class InterfaceService(CRUDService):
             filters = [('lagg_interfacegroup_id', '=', lagg['id'])]
             options = {'order_by': ['lagg_physnic']}
             members = await self.middleware.call('datastore.query', 'network.lagginterfacemembers', filters, options)
-            cloned_interfaces.append(name)
+            cloned_ifaces.append(name)
             try:
                 await self.middleware.call('interface.lag_setup', lagg, members, parent_ifaces, sync_interface_opts)
             except Exception:
@@ -1479,7 +1479,7 @@ class InterfaceService(CRUDService):
 
         vlans = await self.middleware.call('datastore.query', 'network.vlan')
         for vlan in vlans:
-            cloned_interfaces.append(vlan['vlan_vint'])
+            cloned_ifaces.append(vlan['vlan_vint'])
             try:
                 await self.middleware.call('interface.vlan_setup', vlan, parent_ifaces)
             except Exception:
@@ -1500,7 +1500,7 @@ class InterfaceService(CRUDService):
         for bridge in bridges:
             name = bridge['interface']['int_interface']
 
-            cloned_interfaces.append(name)
+            cloned_ifaces.append(name)
             try:
                 await self.middleware.call('interface.bridge_setup', bridge, parent_ifaces)
             except Exception:
@@ -1538,7 +1538,7 @@ class InterfaceService(CRUDService):
                 # 5) Rollback happens where the only nic is removed from database
                 # 6) If we don't unconfigure, autoconfigure is called which is supposed to start dhclient on the
                 #    interface. However this will result in the static ip still being set.
-                await self.middleware.call('interface.unconfigure', iface, cloned_interfaces, parent_ifaces)
+                await self.middleware.call('interface.unconfigure', iface, cloned_ifaces, parent_ifaces)
                 if not iface.cloned:
                     # We only autoconfigure physical interfaces because if this is a delete operation
                     # and the interface that was deleted is a "clone" (vlan/br/bond) interface, then
@@ -1554,7 +1554,7 @@ class InterfaceService(CRUDService):
                 if name in interfaces:
                     continue
 
-                await self.middleware.call('interface.unconfigure', iface, cloned_interfaces, parent_ifaces)
+                await self.middleware.call('interface.unconfigure', iface, cloned_ifaces, parent_ifaces)
 
         if wait_dhcp and dhclient_aws:
             await asyncio.wait(dhclient_aws, timeout=30)
