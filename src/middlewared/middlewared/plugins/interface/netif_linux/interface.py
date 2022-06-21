@@ -1,34 +1,33 @@
-import logging
-from pyroute2 import NDB
+from pyroute2 import NDB, IPRoute
 
-from .address import AddressFamily, AddressMixin
+from .address import AddressMixin
 from .bridge import BridgeMixin
 from .bits import InterfaceFlags, InterfaceLinkState
 from .lagg import LaggMixin
-from .utils import bitmask_to_set, INTERNAL_INTERFACES, run
+from .utils import bitmask_to_set, INTERNAL_INTERFACES
 from .vlan import VlanMixin
 from .vrrp import VrrpMixin
 from .ethernet_settings import EthernetHardwareSettings
 
-logger = logging.getLogger(__name__)
-
 __all__ = ["Interface"]
 
 CLONED_PREFIXES = ["br", "vlan", "bond"] + INTERNAL_INTERFACES
+NDBCTX = NDB(log='off')
+IPRCTX = IPRoute()
 
 
 class Interface(AddressMixin, BridgeMixin, LaggMixin, VlanMixin, VrrpMixin):
     def __init__(self, name):
         self.name = name
+        self.ndbinfo = NDBCTX.interfaces[self.name]
+        self.iprinfo = IPRCTX.get_links(ifname=self.name)[0]
 
     def _read(self, name, type=str):
         return self._sysfs_read(f"/sys/class/net/{self.name}/{name}", type)
 
     def _sysfs_read(self, path, type=str):
         with open(path, "r") as f:
-            value = f.read().strip()
-
-        return type(value)
+            return type(f.read().strip())
 
     @property
     def orig_name(self):
@@ -44,27 +43,19 @@ class Interface(AddressMixin, BridgeMixin, LaggMixin, VlanMixin, VrrpMixin):
 
     @property
     def mtu(self):
-        return self._read("mtu", int)
+        return self.ndbinfo['mtu']
 
     @mtu.setter
     def mtu(self, mtu):
-        up = InterfaceFlags.UP in self.flags
-        run(["ip", "link", "set", "dev", self.name, "mtu", str(mtu)])
-        if up:
-            self.down()
-            self.up()
+        NDBCTX.interfaces[self.name].set('mtu', mtu).commit()
 
     @property
     def cloned(self):
-        for i in CLONED_PREFIXES:
-            if self.orig_name.startswith(i):
-                return True
-
-        return False
+        return any((self.orig_name.startswith(i) for i in CLONED_PREFIXES))
 
     @property
     def flags(self):
-        return bitmask_to_set(self._read("flags", lambda s: int(s, base=16)), InterfaceFlags)
+        return bitmask_to_set(self.ndbinfo['flags'], InterfaceFlags)
 
     @property
     def nd6_flags(self):
@@ -76,19 +67,14 @@ class Interface(AddressMixin, BridgeMixin, LaggMixin, VlanMixin, VrrpMixin):
 
     @property
     def link_state(self):
-        operstate = self._read("operstate")
-
         return {
             "down": InterfaceLinkState.LINK_STATE_DOWN,
             "up": InterfaceLinkState.LINK_STATE_UP,
-        }.get(operstate, InterfaceLinkState.LINK_STATE_UNKNOWN)
+        }.get(self.ndbinfo['state'], InterfaceLinkState.LINK_STATE_UNKNOWN)
 
     @property
     def link_address(self):
-        try:
-            return list(filter(lambda x: x.af == AddressFamily.LINK, self.addresses)).pop()
-        except IndexError:
-            return None
+        return [self.ndbinfo['address']]
 
     def __getstate__(self, address_stats=False, vrrp_config=None):
         state = {
@@ -107,7 +93,7 @@ class Interface(AddressMixin, BridgeMixin, LaggMixin, VlanMixin, VrrpMixin):
             'active_media_subtype': '',
             'supported_media': [],
             'media_options': None,
-            'link_address': self.link_address.address.address if self.link_address is not None else '',
+            'link_address': self.link_address or '',
             'aliases': [i.__getstate__(stats=address_stats) for i in self.addresses],
             'vrrp_config': vrrp_config,
         }
@@ -140,13 +126,11 @@ class Interface(AddressMixin, BridgeMixin, LaggMixin, VlanMixin, VrrpMixin):
         return state
 
     def up(self):
-        with NDB(log='off') as ndb:
-            with ndb.interfaces[self.name] as dev:
-                # this context manager waits until the interface
-                # is up and "ready" before exiting
-                dev['state'] = 'up'
+        with NDBCTX.interfaces[self.name] as dev:
+            # this context manager waits until the interface
+            # is up and "ready" before exiting
+            dev['state'] = 'up'
 
     def down(self):
-        with NDB(log='off') as ndb:
-            with ndb.interfaces[self.name] as dev:
-                dev['state'] = 'down'
+        with NDBCTX.interfaces[self.name] as dev:
+            dev['state'] = 'down'
