@@ -557,7 +557,7 @@ class InterfaceService(CRUDService):
         ]),
         List('bridge_members'),
         Bool('stp', default=True),
-        Str('lag_protocol', enum=['LACP', 'FAILOVER', 'LOADBALANCE', 'ROUNDROBIN', 'NONE']),
+        Str('lag_protocol', enum=['LACP', 'FAILOVER', 'LOADBALANCE']),
         Str('xmit_hash_policy', enum=[i.value for i in XmitHashChoices], default=None, null=True),
         Str('lacpdu_rate', enum=[i.value for i in LacpduRateChoices], default=None, null=True),
         List('lag_ports', items=[Str('interface')]),
@@ -779,11 +779,7 @@ class InterfaceService(CRUDService):
                     await self.middleware.call('interface.validate_name', InterfaceType.LINK_AGGREGATION, data['name'])
                 except ValueError as e:
                     verrors.add(f'{schema_name}.name', str(e))
-            if data['lag_protocol'] not in await self.middleware.call('interface.lag_supported_protocols'):
-                verrors.add(
-                    f'{schema_name}.lag_protocol',
-                    f'TrueNAS SCALE does not support LAG protocol {data["lag_protocol"]}',
-                )
+
             lag_ports = data.get('lag_ports')
             if not lag_ports:
                 verrors.add(f'{schema_name}.lag_ports', 'This field cannot be empty.')
