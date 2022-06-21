@@ -1,6 +1,6 @@
 from enum import IntEnum
 
-__all__ = ["InterfaceCapability", "InterfaceFlags", "InterfaceLinkState", "NeighborDiscoveryFlags"]
+__all__ = ["InterfaceCapability", "InterfaceFlags", "InterfaceV6Flags", "InterfaceLinkState", "NeighborDiscoveryFlags"]
 
 
 class InterfaceCapability(IntEnum):
@@ -28,6 +28,22 @@ class InterfaceFlags(IntEnum):
     LOWER_UP = 1 << 16
     DORMANT = 1 << 17
     ECHO = 1 << 18
+
+
+class InterfaceV6Flags(IntEnum):
+    # include/uapi/linux/if_addr.h
+    TEMPORARY = int('0x01', base=16)
+    NODAD = int('0x02', base=16)
+    OPTIMISTIC = int('0x04', base=16)
+    DADFAILED = int('0x08', base=16)
+    HOMEADDRESS = int('0x10', base=16)
+    DEPRECATED = int('0x20', base=16)
+    TENTATIVE = int('0x40', base=16)
+    PERMANENT = int('0x80', base=16)
+    MANAGETEMPADDR = int('0x100', base=16)
+    NOPREFIXROUTE = int('0x200', base=16)
+    MCAUTOJOIN = int('0x400', base=16)
+    STABLE_PRIVACY = int('0x800', base=16)
 
 
 class InterfaceLinkState(IntEnum):

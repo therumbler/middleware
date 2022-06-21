@@ -2,7 +2,7 @@ from pyroute2 import NDB, IPRoute
 
 from .address import AddressMixin
 from .bridge import BridgeMixin
-from .bits import InterfaceFlags, InterfaceLinkState
+from .bits import InterfaceFlags, InterfaceV6Flags, InterfaceLinkState
 from .lagg import LaggMixin
 from .utils import bitmask_to_set, INTERNAL_INTERFACES
 from .vlan import VlanMixin
@@ -59,11 +59,10 @@ class Interface(AddressMixin, BridgeMixin, LaggMixin, VlanMixin, VrrpMixin):
 
     @property
     def nd6_flags(self):
-        return set()
-
-    @nd6_flags.setter
-    def nd6_flags(self, value):
-        pass
+        return bitmask_to_set(
+            self.iprinfo.get_attr('IFLA_AF_SPEC').get_attr('AF_INET6').get_attr('IFLA_INET6_FLAGS'),
+            InterfaceV6Flags
+        )
 
     @property
     def link_state(self):
