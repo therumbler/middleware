@@ -7,8 +7,9 @@ import re
 from pytest_dependency import depends
 apifolder = os.getcwd()
 sys.path.append(apifolder)
-from functions import POST, GET, wait_on_job, make_ws_request
+from functions import POST, GET, wait_on_job, make_ws_request, SSH_TEST
 from auto_config import pool_name, ha  # , ha_pool_name
+from auto_config import sshKey, user, password, ha
 from middlewared.test.integration.assets.pool import another_pool
 
 IMAGES = {}
@@ -31,6 +32,16 @@ else:
 @pytest.fixture(scope='module')
 def pool_data():
     return {}
+
+
+def test_00_reinstall_middleware():
+    cmd = 'git clone --branch awalker_testing https://github.com/truenas/middleware'
+    results = SSH_TEST(cmd, user, password, ip)
+    assert results['result'] is True, results['output']
+
+    cmd = 'cd middleware/src/middlewared && make reinstall && service middlewared restart'
+    results = SSH_TEST(cmd, user, password, ip)
+    assert results['result'] is True, results['output']
 
 
 def test_01_get_pool():
