@@ -1,7 +1,23 @@
+import itertools
 import os
 
 from middlewared.service import lock, private, Service
 from middlewared.utils.shutil import rmtree_one_filesystem
+
+
+def rmtree_collectd(path):
+    # Running collectd/rrdcached instances might have created this path again
+    for i in itertools.count():
+        try:
+            rmtree_one_filesystem(path)
+            return
+        except OSError as e:
+            if "Directory not empty" in e.args[0] and i < 100:
+                # This might happen if new elements were created in the directory tree while it was being
+                # recursively deleted.
+                pass
+
+            raise
 
 
 class ReportingService(Service):
@@ -31,7 +47,7 @@ class ReportingService(Service):
                 os.unlink(pwd)
         else:
             if os.path.exists(pwd):
-                rmtree_one_filesystem(pwd)
+                rmtree_collectd(pwd)
         if not os.path.exists(pwd):
             os.makedirs(base_collectd, exist_ok=True)
             os.symlink(rrd_mount, pwd)
@@ -55,7 +71,7 @@ class ReportingService(Service):
             # Remove all symlinks (that are stale if hostname was changed)
             # Remove all files and directories except "localhost" (that may be erroneously created by
             # running collectd before this script)
-            rmtree_one_filesystem(path)
+            rmtree_collectd(path)
 
         os.makedirs(os.path.join(pwd, 'localhost'), exist_ok=True)
 
@@ -65,18 +81,7 @@ class ReportingService(Service):
                 os.symlink(os.path.join(pwd, 'localhost'), dst)
                 break
             except FileExistsError:
-                # Running collectd/rrdcached instances might have created this path again
-                for _ in range(100):
-                    try:
-                        rmtree_one_filesystem(dst)
-                        break
-                    except OSError as e:
-                        if "Directory not empty" in e.args[0]:
-                            # This might happen if new elements were created in the directory tree while it was being
-                            # recursively deleted.
-                            pass
-
-                        raise
+                rmtree_collectd(dst)
         else:
             self.logger.error('Unable to create collectd symlink to %r', dst)
             return False
