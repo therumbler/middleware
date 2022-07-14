@@ -126,7 +126,7 @@ class DiskService(Service):
                     raise CallError(f"Unable to overprovision disk {devname}:\n{e.stdout}")
         finally:
             if sync:
-                await self.middleware.call("disk.sync", sync)
+                await (await self.middleware.call("disk.sync", sync)).wait()
 
     @accepts(Str("devname"))
     async def unoverprovision(self, devname):

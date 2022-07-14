@@ -77,4 +77,5 @@ class DiskService(Service):
         await self.middleware.call('disk.swaps_remove_disks', [dev], options)
         await self.middleware.call('disk.remove_disk_from_graid', dev)
         await self.middleware.run_in_thread(self._wipe, {'job': job, 'dev': dev, 'mode': mode})
-        await self.middleware.call('disk.sync', dev) if sync else None
+        if sync:
+            await (await self.middleware.call('disk.sync', dev)).wait()

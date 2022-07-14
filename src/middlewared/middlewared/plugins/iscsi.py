@@ -975,9 +975,7 @@ class iSCSITargetExtentService(SharingService):
 
                             if verrors:
                                 raise verrors
-                        await self.middleware.call(
-                            'disk.sync', disk.replace('/dev/', '')
-                        )
+                        await (await self.middleware.call('disk.sync', disk.replace('/dev/', '')).wait()
                 except IndexError:
                     # It's not a disk, but a ZVOL
                     pass

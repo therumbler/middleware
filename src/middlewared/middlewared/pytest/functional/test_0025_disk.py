@@ -29,7 +29,7 @@ def test_disk_device_to_identifier(conn):
 
 def test_disk_sync(conn):
     for disk in conn.ws.call('disk.query'):
-        conn.ws.call('disk.sync', disk['name'])
+        conn.ws.call('disk.sync', disk['name'], job=True)
 
 
 def test_disk_sync_all(conn):

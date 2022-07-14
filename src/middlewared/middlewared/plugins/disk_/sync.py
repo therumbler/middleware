@@ -8,7 +8,7 @@ from middlewared.schema import accepts, Str
 from middlewared.service import job, private, Service, ServiceChangeMixin
 
 RE_IDENT = re.compile(r'^\{(?P<type>.+?)\}(?P<value>.+)$')
-
+DISK_SYNC = 'disk_sync'
 
 class DiskService(Service, ServiceChangeMixin):
 
@@ -33,6 +33,7 @@ class DiskService(Service, ServiceChangeMixin):
 
     @private
     @accepts(Str('name'))
+    @job(lock=DISK_SYNC)
     async def sync(self, name):
         """
         Syncs a disk `name` with the database cache.
@@ -210,7 +211,7 @@ class DiskService(Service, ServiceChangeMixin):
 
     @private
     @accepts()
-    @job(lock='disk.sync_all')
+    @job(lock=DISK_SYNC)
     def sync_all(self, job):
         """
         Synchronize all disks with the cache in database.

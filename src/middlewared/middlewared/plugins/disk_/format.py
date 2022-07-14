@@ -47,4 +47,4 @@ class DiskService(Service):
 
         if sync:
             # We might need to sync with reality (e.g. devname -> uuid)
-            self.middleware.call_sync('disk.sync', disk)
+            self.middleware.call_sync('disk.sync', disk).wait()
