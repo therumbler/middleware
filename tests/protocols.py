@@ -10,6 +10,25 @@ from functions import SSH_TEST
 libsmb_has_rename = 'rename' in dir(libsmb.Conn)
 
 
+class ACLControl(enum.IntFlag):
+    SEC_DESC_OWNER_DEFAULTED        = 0x0001
+    SEC_DESC_GROUP_DEFAULTED        = 0x0002
+    SEC_DESC_DACL_PRESENT           = 0x0004
+    SEC_DESC_DACL_DEFAULTED         = 0x0008
+    SEC_DESC_SACL_PRESENT           = 0x0010
+    SEC_DESC_SACL_DEFAULTED         = 0x0020
+    SEC_DESC_DACL_TRUSTED           = 0x0040
+    SEC_DESC_SERVER_SECURITY        = 0x0080
+    SEC_DESC_DACL_AUTO_INHERIT_REQ  = 0x0100
+    SEC_DESC_SACL_AUTO_INHERIT_REQ  = 0x0200
+    SEC_DESC_DACL_AUTO_INHERITED    = 0x0400
+    SEC_DESC_SACL_AUTO_INHERITED    = 0x0800
+    SEC_DESC_DACL_PROTECTED         = 0x1000
+    SEC_DESC_SACL_PROTECTED         = 0x2000
+    SEC_DESC_RM_CONTROL_VALID       = 0x4000
+    SEC_DESC_SELF_RELATIVE          = 0x8000
+
+
 class SMB(object):
     """
     Python implementation of basic SMB operations for protocol testing.
