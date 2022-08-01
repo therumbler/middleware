@@ -265,7 +265,7 @@ class CTDBWrap(object):
                 output.append(json.loads(tdb_val))
 
         self.hdl.commit_transaction()
-        self.skip_trans = False
+        self.hdl.skip_trans = False
 
         return output
 
